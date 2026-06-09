@@ -277,6 +277,64 @@ class _SettingsBody extends StatelessWidget {
 
               const SizedBox(height: 28),
 
+              // ── Context Window ────────────────────────────────
+              _sectionHeader(context, 'Context Window'),
+              const SizedBox(height: 8),
+              Text(
+                'How much conversation history the model can remember. '
+                'Higher values allow longer chats but use more RAM. '
+                'Reload the model after changing.',
+                style: TextStyle(fontSize: 12, color: context.textD),
+              ),
+              const SizedBox(height: 12),
+              _card(
+                context,
+                child: Obx(
+                  () => Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.memory_rounded,
+                          size: 20,
+                          color: context.textM,
+                        ),
+                        Expanded(
+                          child: Slider(
+                            value: chatCtrl.contextSizeSetting.value.toDouble(),
+                            min: 1024,
+                            max: 3072,
+                            divisions: 4,
+                            activeColor: AppColors.accent,
+                            inactiveColor: context.border,
+                            label: '${chatCtrl.contextSizeSetting.value} tokens',
+                            onChanged: (v) =>
+                                chatCtrl.updateContextSize(v.round()),
+                          ),
+                        ),
+                        Container(
+                          width: 64,
+                          alignment: Alignment.center,
+                          child: Text(
+                            '${chatCtrl.contextSizeSetting.value}',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: context.text,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 28),
+
               // ── Hardware Configuration ──────────────────────────
               _sectionHeader(context, 'Hardware Configuration'),
               const SizedBox(height: 8),
@@ -771,38 +829,24 @@ class _HardwareSettingsCardState extends State<_HardwareSettingsCard> {
   late double _gpuLayers;
   bool _showManual = false;
 
-  // Auto-detect the best backend and GPU layers for this device
+  // Auto-detect the best backend and GPU layers for this device.
+  // MediaTek SoCs (e.g. Moto G73 Dimensity 930) often fail with OpenCL offload.
   static Map<String, dynamic> _detectBestConfig() {
     if (!Platform.isAndroid && !Platform.isIOS) {
-      // Desktop: CPU is safest, Vulkan if available
       return {'backend': 'cpu', 'gpuLayers': 0, 'reason': 'CPU mode — most compatible on desktop'};
     }
 
-    // Android/iOS: detect available RAM and processor count
     final cores = Platform.numberOfProcessors;
-    
-    if (cores >= 8) {
-      // High-end device (e.g. Snapdragon 8 Gen 2+, Dimensity 9000+)
-      return {
-        'backend': 'opencl',
-        'gpuLayers': 33,
-        'reason': 'OpenCL GPU — best for high-end SoC ($cores cores detected)',
-      };
-    } else if (cores >= 6) {
-      // Mid-range device
-      return {
-        'backend': 'cpu',
-        'gpuLayers': 0,
-        'reason': 'CPU mode — safe for mid-range devices ($cores cores)',
-      };
-    } else {
-      // Low-end device
-      return {
-        'backend': 'cpu',
-        'gpuLayers': 0,
-        'reason': 'CPU mode — optimized for lower-end devices ($cores cores)',
-      };
-    }
+
+    // CPU is the safest default on Android — especially MediaTek devices.
+    // GPU offload can be enabled manually after confirming stability.
+    return {
+      'backend': 'cpu',
+      'gpuLayers': 0,
+      'reason':
+          'CPU mode — recommended for MediaTek/Snapdragon phones ($cores cores). '
+          'Reload your model after applying.',
+    };
   }
 
   @override

@@ -214,6 +214,9 @@ class _ModelLibraryBodyState extends State<_ModelLibraryBody> {
                             ctrl.selectedModelFilename.value ==
                                 model.filename &&
                             ctrl.isModelLoaded,
+                        isAnotherModelLoaded:
+                            ctrl.isModelLoaded &&
+                            ctrl.selectedModelFilename.value != model.filename,
                         isLoadingModel:
                             ctrl.loadingModelFilename.value == model.filename,
                         loadingStatusMsg: ctrl.loadingStatusMsg.value,

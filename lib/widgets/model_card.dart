@@ -11,6 +11,7 @@ class ModelCard extends StatelessWidget {
   final bool isCurrentlyDownloading;
   final DownloadState? downloadState;
   final bool isLoaded;
+  final bool isAnotherModelLoaded;
   final bool isLoadingModel;
   final String loadingStatusMsg;
   final double loadingProgress;
@@ -29,6 +30,7 @@ class ModelCard extends StatelessWidget {
     required this.isCurrentlyDownloading,
     this.downloadState,
     required this.isLoaded,
+    this.isAnotherModelLoaded = false,
     required this.isLoadingModel,
     this.loadingStatusMsg = '',
     this.loadingProgress = 0.0,
@@ -333,8 +335,13 @@ class ModelCard extends StatelessWidget {
           Expanded(
             child: ElevatedButton.icon(
               onPressed: onLoad,
-              icon: const Icon(Icons.play_arrow_rounded, size: 18),
-              label: const Text('Load Model'),
+              icon: Icon(
+                isAnotherModelLoaded
+                    ? Icons.swap_horiz_rounded
+                    : Icons.play_arrow_rounded,
+                size: 18,
+              ),
+              label: Text(isAnotherModelLoaded ? 'Switch Model' : 'Load Model'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.green,
                 foregroundColor: Colors.white,

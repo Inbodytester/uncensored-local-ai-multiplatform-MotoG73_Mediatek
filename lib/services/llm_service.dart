@@ -20,6 +20,7 @@ class LlmService extends GetxService {
   final tokensPerSecond = 0.0.obs;
   final lastGenerationTokens = 0.obs;
   final lastGenerationSpeed = 0.0.obs;
+  final loadedContextSize = 2048.obs;
 
   // ── Loading progress tracking ──────────────────────────────
   final isLoadingModel = false.obs;
@@ -147,13 +148,22 @@ class LlmService extends GetxService {
         return;
       }
 
-      // Use smaller context on Android to prevent OOM kills.
-      // Desktop can handle 2048, but Android devices with limited RAM
-      // need 1024 to avoid the Low Memory Killer (LMK).
-      final contextSize = Platform.isAndroid ? 1024 : 2048;
+      // Adaptive context: user setting, capped for large models on Android.
+      final storage = Get.find<ChatStorageService>();
+      var contextSize = storage.contextSize;
+      if (Platform.isAndroid) {
+        final sizeGb = fileSize / (1024 * 1024 * 1024);
+        if (sizeGb > 3.5) {
+          contextSize = contextSize.clamp(1024, 1536);
+        } else if (sizeGb > 2.5) {
+          contextSize = contextSize.clamp(1024, 2048);
+        } else {
+          contextSize = contextSize.clamp(1024, 3072);
+        }
+      }
+      loadedContextSize.value = contextSize;
 
       // Map the string backend to GpuBackend enum
-      final storage = Get.find<ChatStorageService>();
       GpuBackend parsedBackend;
       switch (storage.backendType) {
         case 'vulkan':
@@ -395,6 +405,38 @@ class LlmService extends GetxService {
     }
   }
 
+  /// Keep the most recent messages that fit in the loaded context window.
+  Future<List<LlamaChatMessage>> trimMessagesForContext({
+    required List<LlamaChatMessage> messages,
+    int reservedForResponse = 512,
+  }) async {
+    if (messages.isEmpty) return messages;
+
+    final budget = loadedContextSize.value - reservedForResponse;
+    if (budget <= 0) return messages.take(1).toList();
+
+    final kept = <LlamaChatMessage>[];
+    var used = 0;
+
+    for (var i = messages.length - 1; i >= 0; i--) {
+      final msg = messages[i];
+      final text = msg.content;
+      if (text.isEmpty) continue;
+
+      final tokens = await countTokens(text);
+      final cost = tokens > 0 ? tokens : (text.length / 4).ceil();
+
+      if (used + cost > budget && kept.isNotEmpty) break;
+
+      kept.insert(0, msg);
+      used += cost;
+
+      if (used >= budget) break;
+    }
+
+    return kept.isEmpty ? messages.take(1).toList() : kept;
+  }
+
   /// Stop ongoing generation.
   Future<void> stopGeneration() async {
     _generateSub?.cancel();
@@ -418,6 +460,7 @@ class LlmService extends GetxService {
     isLoaded.value = false;
     loadedModelPath.value = '';
     tokensPerSecond.value = 0.0;
+    loadedContextSize.value = 2048;
   }
 
   /// Unload the current model and free memory.

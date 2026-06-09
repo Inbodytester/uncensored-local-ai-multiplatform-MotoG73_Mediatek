@@ -110,11 +110,28 @@ class ModelController extends GetxController {
 
   /// Load a model into the LLM engine.
   Future<void> loadModel(String filename) async {
+    if (_llm.isGenerating.value) {
+      Get.snackbar(
+        'Generation In Progress',
+        'Stop the current response before switching models.',
+        snackPosition: SnackPosition.BOTTOM,
+      );
+      return;
+    }
+
     // If already loading something, cancel it first
     if (isLoadingModel.value) {
       cancelLoadModel();
-      // Small delay to let cancellation propagate
-      await Future.delayed(const Duration(milliseconds: 200));
+      await Future.delayed(const Duration(milliseconds: 300));
+    }
+
+    // Unload any currently loaded model before switching.
+    if (_llm.isLoaded.value &&
+        selectedModelFilename.value != null &&
+        selectedModelFilename.value != filename) {
+      loadingStatusMsg.value = 'Unloading previous model...';
+      await _llm.unloadModel();
+      await Future.delayed(const Duration(milliseconds: 800));
     }
 
     loadingModelFilename.value = filename;
@@ -145,6 +162,14 @@ class ModelController extends GetxController {
 
       selectedModelFilename.value = filename;
       _storage.lastModelId = filename;
+
+      final info = getModelInfo(filename);
+      Get.snackbar(
+        'Model Ready',
+        info?.name ?? filename,
+        snackPosition: SnackPosition.BOTTOM,
+        duration: const Duration(seconds: 2),
+      );
     } catch (e) {
       loadError.value = e.toString();
       LogService? log;

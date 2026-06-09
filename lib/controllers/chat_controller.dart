@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:get/get.dart';
+import 'package:llamadart/llamadart.dart';
 
 import '../models/chat_model.dart';
 import '../models/message_model.dart';
@@ -16,8 +17,12 @@ class ChatController extends GetxController {
   final streamedResponse = ''.obs;
   final temperature = 0.7.obs;
   final systemPrompt = ''.obs;
+  final contextSizeSetting = 2048.obs;
+  final contextUsage = 0.0.obs;
 
   StreamSubscription<String>? _genSub;
+
+  static const _maxResponseTokens = 512;
 
   @override
   void onInit() {
@@ -25,6 +30,7 @@ class ChatController extends GetxController {
     _loadChats();
     temperature.value = _storage.defaultTemperature;
     systemPrompt.value = _storage.globalSystemPrompt;
+    contextSizeSetting.value = _storage.contextSize;
   }
 
   void _loadChats() {
@@ -69,9 +75,43 @@ class ChatController extends GetxController {
     }
   }
 
+  List<LlamaChatMessage> _buildLlamaMessages(
+    List<MessageModel> messages,
+    String prompt,
+  ) {
+    final result = <LlamaChatMessage>[];
+
+    if (prompt.isNotEmpty) {
+      result.add(
+        LlamaChatMessage.fromText(role: LlamaChatRole.system, text: prompt),
+      );
+    }
+
+    for (final msg in messages.where((m) => !m.isSystem)) {
+      final role = switch (msg.role) {
+        MessageRole.user => LlamaChatRole.user,
+        MessageRole.assistant => LlamaChatRole.assistant,
+        MessageRole.system => LlamaChatRole.system,
+      };
+      if (msg.content.isEmpty) continue;
+      result.add(LlamaChatMessage.fromText(role: role, text: msg.content));
+    }
+
+    return result;
+  }
+
   /// Send a user message and stream AI response.
   Future<void> sendMessage(String text, {String? modelFilename}) async {
     if (text.trim().isEmpty) return;
+    if (!_llm.isLoaded.value) {
+      Get.snackbar(
+        'No Model Loaded',
+        'Load a model from the Models tab before chatting.',
+        snackPosition: SnackPosition.BOTTOM,
+      );
+      return;
+    }
+
     final chat = activeChat;
     if (chat == null) return;
 
@@ -81,7 +121,7 @@ class ChatController extends GetxController {
     chat.autoTitle();
     chat.updatedAt = DateTime.now();
 
-    // Lock model to this chat on first message
+    // Track which model this chat started with (informational only).
     if (chat.modelId.isEmpty && modelFilename != null) {
       chat.modelId = modelFilename;
     }
@@ -89,11 +129,25 @@ class ChatController extends GetxController {
     _storage.saveChat(chat);
     chats.refresh();
 
-    // Build message history for LLM
-    final history = chat.messages
-        .where((m) => !m.isSystem)
-        .map((m) => m.toLlamaMessage())
+    final effectivePrompt = chat.systemPrompt.isNotEmpty
+        ? chat.systemPrompt
+        : systemPrompt.value;
+
+    // Build and trim history to fit the context window.
+    final historyWithoutLatest = chat.messages
+        .where((m) => !m.isSystem && m != userMsg)
         .toList();
+    var llamaMessages = _buildLlamaMessages(historyWithoutLatest, effectivePrompt);
+    llamaMessages = await _llm.trimMessagesForContext(
+      messages: llamaMessages,
+      reservedForResponse: _maxResponseTokens,
+    );
+    llamaMessages.add(
+      LlamaChatMessage.fromText(role: LlamaChatRole.user, text: userMsg.content),
+    );
+
+    final usedTokens = await _estimateMessageTokens(llamaMessages);
+    contextUsage.value = usedTokens / _llm.loadedContextSize.value;
 
     // Start generation
     isGenerating.value = true;
@@ -103,40 +157,52 @@ class ChatController extends GetxController {
     chat.messages.add(aiMsg);
     chats.refresh();
 
+    final params = GenerationParams(
+      temp: temperature.value,
+      maxTokens: _maxResponseTokens,
+      penalty: 1.0,
+      topP: 0.95,
+      minP: 0.05,
+    );
+
     try {
-      final stream = _llm.generate(
-        messages: history,
-        systemPrompt: chat.systemPrompt.isNotEmpty
-            ? chat.systemPrompt
-            : systemPrompt.value,
-        temperature: temperature.value,
+      final stream = _llm.generateChatCompletion(
+        messages: llamaMessages,
+        params: params,
       );
 
       await for (final token in stream) {
         streamedResponse.value += token;
         aiMsg.content = streamedResponse.value;
-        // Throttle UI refreshes
         chats.refresh();
       }
     } catch (e) {
       if (aiMsg.content.isEmpty) {
-        aiMsg.content = '⚠ Error: ${e.toString()}';
+        final err = e.toString().toLowerCase();
+        if (err.contains('context') || err.contains('token')) {
+          aiMsg.content =
+              '⚠ Context window full. Start a new chat or reduce the system prompt in Settings.';
+        } else {
+          aiMsg.content = '⚠ Error: ${e.toString()}';
+        }
       }
     } finally {
-      // Clean up any trailing stop tokens or whitespace
-      aiMsg.content = aiMsg.content
-          .replaceAll(RegExp(
-            r'<\|end\|>|<\|eot_id\|>|<\|endoftext\|>|<\|im_end\|>|<\|im_start\|>'
-            r'|<end_of_turn>|<start_of_turn>|<\|assistant\|>|<\|user\|>|<\|system\|>'
-            r'|<\|pad\|>|</s>|<s>|\[INST\]|\[/INST\]|\[end\]'
-          ), '')
-          .trim();
+      aiMsg.content = aiMsg.content.trim();
       isGenerating.value = false;
       streamedResponse.value = '';
       chat.updatedAt = DateTime.now();
       _storage.saveChat(chat);
       chats.refresh();
     }
+  }
+
+  Future<int> _estimateMessageTokens(List<LlamaChatMessage> messages) async {
+    var total = 0;
+    for (final msg in messages) {
+      final tokens = await _llm.countTokens(msg.content);
+      total += tokens > 0 ? tokens : (msg.content.length / 4).ceil();
+    }
+    return total;
   }
 
   /// Stop current generation.
@@ -170,6 +236,11 @@ class ChatController extends GetxController {
   void updateTemperature(double temp) {
     temperature.value = temp;
     _storage.defaultTemperature = temp;
+  }
+
+  void updateContextSize(int size) {
+    contextSizeSetting.value = size;
+    _storage.contextSize = size;
   }
 
   @override
