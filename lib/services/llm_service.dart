@@ -120,6 +120,10 @@ class LlmService extends GetxService {
       loadingStatusMsg.value = 'Loading into memory...';
       loadingProgress.value = 0.1;
 
+      await wakelockService?.enableForModelLoad(
+        modelName: p.basenameWithoutExtension(path),
+      );
+
       // Get file size for display
       final fileSize = await file.length();
       final sizeGb = (fileSize / (1024 * 1024 * 1024)).toStringAsFixed(1);

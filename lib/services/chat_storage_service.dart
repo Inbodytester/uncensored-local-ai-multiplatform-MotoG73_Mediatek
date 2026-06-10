@@ -107,4 +107,18 @@ class ChatStorageService extends GetxService {
       (_settingsBox.get('context_size', defaultValue: 2048) as num).toInt();
 
   set contextSize(int value) => _settingsBox.put('context_size', value);
+
+  /// Keep downloads/inference running via foreground service when screen locks.
+  bool get runWhenScreenLocked =>
+      _settingsBox.get('run_when_screen_locked', defaultValue: true) as bool;
+
+  set runWhenScreenLocked(bool value) =>
+      _settingsBox.put('run_when_screen_locked', value);
+
+  /// Optional: keep the display on during AI tasks (uses more battery).
+  bool get keepScreenOnDuringAi =>
+      _settingsBox.get('keep_screen_on_ai', defaultValue: false) as bool;
+
+  set keepScreenOnDuringAi(bool value) =>
+      _settingsBox.put('keep_screen_on_ai', value);
 }
