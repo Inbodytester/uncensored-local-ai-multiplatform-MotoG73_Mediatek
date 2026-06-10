@@ -6,12 +6,10 @@ import '../models/chat_model.dart';
 import '../models/message_model.dart';
 import '../services/llm_service.dart';
 import '../services/chat_storage_service.dart';
-import '../services/wakelock_service.dart';
 
 class ChatController extends GetxController {
   final LlmService _llm = Get.find<LlmService>();
   final ChatStorageService _storage = Get.find<ChatStorageService>();
-  final WakelockService _wakelock = Get.find<WakelockService>();
 
   final chats = <ChatModel>[].obs;
   final activeChatId = RxnString();
@@ -155,12 +153,6 @@ class ChatController extends GetxController {
     isGenerating.value = true;
     streamedResponse.value = '';
 
-    await _wakelock.enableForGeneration(
-      modelName: _llm.loadedModelFilename.isNotEmpty
-          ? _llm.loadedModelFilename
-          : 'AI model',
-    );
-
     final aiMsg = MessageModel(role: MessageRole.assistant, content: '');
     chat.messages.add(aiMsg);
     chats.refresh();
@@ -201,14 +193,6 @@ class ChatController extends GetxController {
       chat.updatedAt = DateTime.now();
       _storage.saveChat(chat);
       chats.refresh();
-
-      if (_llm.isLoaded.value) {
-        await _wakelock.finishGeneration(
-          modelName: _llm.loadedModelFilename.isNotEmpty
-              ? _llm.loadedModelFilename
-              : 'AI model',
-        );
-      }
     }
   }
 

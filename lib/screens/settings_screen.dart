@@ -121,8 +121,6 @@ class _SettingsBody extends StatelessWidget {
 
               if (Platform.isAndroid) ...[
                 const SizedBox(height: 12),
-                _ScreenLockSettingsCard(storage: storage),
-                const SizedBox(height: 12),
                 _card(
                   context,
                   child: ListTile(
@@ -813,91 +811,6 @@ class _SettingsBody extends StatelessWidget {
           fontWeight: FontWeight.w600,
         ),
       ),
-    );
-  }
-}
-
-class _ScreenLockSettingsCard extends StatefulWidget {
-  final ChatStorageService storage;
-
-  const _ScreenLockSettingsCard({required this.storage});
-
-  @override
-  State<_ScreenLockSettingsCard> createState() => _ScreenLockSettingsCardState();
-}
-
-class _ScreenLockSettingsCardState extends State<_ScreenLockSettingsCard> {
-  late bool _runWhenLocked;
-  late bool _keepScreenOn;
-
-  @override
-  void initState() {
-    super.initState();
-    _runWhenLocked = widget.storage.runWhenScreenLocked;
-    _keepScreenOn = widget.storage.keepScreenOnDuringAi;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return _card(
-      context,
-      child: Column(
-        children: [
-          SwitchListTile(
-            title: Text(
-              'Continue When Screen Locks',
-              style: TextStyle(color: context.text, fontSize: 14),
-            ),
-            subtitle: Text(
-              'Keeps downloads, model loading, and chat generation running in the background',
-              style: TextStyle(color: context.textD, fontSize: 12),
-            ),
-            secondary: Icon(Icons.lock_open_rounded, color: context.textM),
-            value: _runWhenLocked,
-            onChanged: (val) {
-              setState(() => _runWhenLocked = val);
-              widget.storage.runWhenScreenLocked = val;
-            },
-            activeThumbColor: AppColors.accent,
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 16,
-              vertical: 4,
-            ),
-          ),
-          SwitchListTile(
-            title: Text(
-              'Keep Screen On During AI Tasks',
-              style: TextStyle(color: context.text, fontSize: 14),
-            ),
-            subtitle: Text(
-              'Optional. Uses more battery. Leave off to only keep the CPU awake',
-              style: TextStyle(color: context.textD, fontSize: 12),
-            ),
-            secondary: Icon(Icons.brightness_high_rounded, color: context.textM),
-            value: _keepScreenOn,
-            onChanged: (val) {
-              setState(() => _keepScreenOn = val);
-              widget.storage.keepScreenOnDuringAi = val;
-            },
-            activeThumbColor: AppColors.accent,
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 16,
-              vertical: 4,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _card(BuildContext context, {required Widget child}) {
-    return Container(
-      decoration: BoxDecoration(
-        color: context.bgPanel,
-        border: Border.all(color: context.border),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: child,
     );
   }
 }

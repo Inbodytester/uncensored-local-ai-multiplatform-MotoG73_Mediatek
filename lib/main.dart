@@ -11,8 +11,6 @@ import 'models/message_model.dart';
 import 'theme/app_theme.dart';
 import 'bindings/app_bindings.dart';
 import 'controllers/theme_controller.dart';
-import 'services/llm_service.dart';
-import 'services/wakelock_service.dart';
 // ignore: unused_import
 import 'screens/splash_screen.dart'; // needed in routes/app_routes.dart
 import 'routes/app_routes.dart';
@@ -58,64 +56,17 @@ Future<void> main() async {
   });
 }
 
-class PortableAIApp extends StatefulWidget {
+class PortableAIApp extends StatelessWidget {
   final ThemeController themeController;
-
+  
   const PortableAIApp({super.key, required this.themeController});
-
-  @override
-  State<PortableAIApp> createState() => _PortableAIAppState();
-}
-
-class _PortableAIAppState extends State<PortableAIApp>
-    with WidgetsBindingObserver {
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addObserver(this);
-  }
-
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    super.dispose();
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state != AppLifecycleState.paused &&
-        state != AppLifecycleState.inactive &&
-        state != AppLifecycleState.hidden) {
-      return;
-    }
-
-    _handleBackgroundTransition();
-  }
-
-  Future<void> _handleBackgroundTransition() async {
-    try {
-      final wakelock = Get.find<WakelockService>();
-      final llm = Get.find<LlmService>();
-
-      final modelName = llm.loadedModelFilename.isNotEmpty
-          ? llm.loadedModelFilename
-          : 'AI model';
-
-      await wakelock.onAppPaused(
-        modelLoaded: llm.isLoaded.value,
-        isGenerating: llm.isGenerating.value,
-        isLoadingModel: llm.isLoadingModel.value,
-        modelName: modelName,
-      );
-    } catch (_) {}
-  }
 
   @override
   Widget build(BuildContext context) {
     return GetMaterialApp(
       title: 'Uncensored Local AI',
       debugShowCheckedModeBanner: false,
-      themeMode: widget.themeController.themeMode,
+      themeMode: themeController.themeMode,
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
       initialBinding: AppBindings(),

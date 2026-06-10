@@ -4,30 +4,12 @@ import 'package:get/get.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 
-import 'chat_storage_service.dart';
-
-/// Keeps downloads, model loading, and AI inference alive when the screen locks.
-///
-/// Uses an Android foreground service (CPU wake lock, no screen-on required).
-/// Optional screen wake lock is available in Settings for users who want it.
+/// Manages wake lock (screen stays on) and Android foreground service
+/// to prevent the OS from killing downloads and inference.
 class WakelockService extends GetxService {
   final isWakeLockActive = false.obs;
-  final isForegroundServiceActive = false.obs;
 
   bool get _isMobile => Platform.isAndroid || Platform.isIOS;
-
-  ChatStorageService? get _storage {
-    try {
-      return Get.find<ChatStorageService>();
-    } catch (_) {
-      return null;
-    }
-  }
-
-  bool get _runWhenScreenLocked =>
-      _storage?.runWhenScreenLocked ?? true;
-
-  bool get _keepScreenOn => _storage?.keepScreenOnDuringAi ?? false;
 
   Future<WakelockService> init() async {
     if (_isMobile) {
@@ -35,10 +17,9 @@ class WakelockService extends GetxService {
         androidNotificationOptions: AndroidNotificationOptions(
           channelId: 'portable_ai_foreground',
           channelName: 'Uncensored Local AI',
-          channelDescription:
-              'Keeps downloads and AI inference running when the screen is off',
-          channelImportance: NotificationChannelImportance.DEFAULT,
-          priority: NotificationPriority.DEFAULT,
+          channelDescription: 'Keeps downloads and AI inference running',
+          channelImportance: NotificationChannelImportance.LOW,
+          priority: NotificationPriority.LOW,
         ),
         iosNotificationOptions: const IOSNotificationOptions(
           showNotification: true,
@@ -52,83 +33,29 @@ class WakelockService extends GetxService {
           allowWifiLock: true,
         ),
       );
-
+      
+      // Request notification permission for Android 13+
       await FlutterForegroundTask.requestNotificationPermission();
     }
     return this;
   }
 
-  /// Re-assert background execution when the app moves to the background.
-  Future<void> onAppPaused({
-    required bool modelLoaded,
-    required bool isGenerating,
-    required bool isLoadingModel,
-    String modelName = 'AI model',
-  }) async {
-    if (!_isMobile || !_runWhenScreenLocked) return;
+  /// Enable wake lock + foreground service for model download.
+  Future<void> enableForDownload({String modelName = 'model'}) async {
+    if (!_isMobile) return;
 
-    if (isGenerating) {
-      await enableForGeneration(modelName: modelName);
-    } else if (isLoadingModel) {
-      await enableForModelLoad(modelName: modelName);
-    } else if (modelLoaded) {
-      await enableForInference(modelName: modelName);
-    }
-  }
-
-  Future<void> _maybeEnableScreenWakeLock() async {
-    if (!_keepScreenOn) return;
     try {
       await WakelockPlus.enable();
       isWakeLockActive.value = true;
+
+      await FlutterForegroundTask.startService(
+        notificationTitle: 'Downloading $modelName',
+        notificationText: 'Download in progress — keep the app open',
+        serviceId: 100,
+      );
     } catch (e) {
-      debugPrint('WakelockService screen wake lock error: $e');
+      debugPrint('WakelockService.enableForDownload error: $e');
     }
-  }
-
-  Future<void> _maybeDisableScreenWakeLock() async {
-    if (!_keepScreenOn) return;
-    try {
-      await WakelockPlus.disable();
-      isWakeLockActive.value = false;
-    } catch (_) {}
-  }
-
-  Future<void> _startOrUpdateService({
-    required String title,
-    required String text,
-    required int serviceId,
-  }) async {
-    if (!_isMobile || !_runWhenScreenLocked) return;
-
-    try {
-      await _maybeEnableScreenWakeLock();
-
-      if (await FlutterForegroundTask.isRunningService) {
-        await FlutterForegroundTask.updateService(
-          notificationTitle: title,
-          notificationText: text,
-        );
-      } else {
-        await FlutterForegroundTask.startService(
-          notificationTitle: title,
-          notificationText: text,
-          serviceId: serviceId,
-        );
-      }
-      isForegroundServiceActive.value = true;
-    } catch (e) {
-      debugPrint('WakelockService foreground service error: $e');
-    }
-  }
-
-  /// Enable background execution for model download.
-  Future<void> enableForDownload({String modelName = 'model'}) async {
-    await _startOrUpdateService(
-      title: 'Downloading $modelName',
-      text: 'Continues when the screen is locked',
-      serviceId: 100,
-    );
   }
 
   /// Update the foreground notification with download progress.
@@ -137,59 +64,47 @@ class WakelockService extends GetxService {
     required double progress,
     String? speedText,
   }) async {
-    if (!_isMobile || !_runWhenScreenLocked) return;
+    if (!_isMobile) return;
 
     try {
       final pct = (progress * 100).toInt();
       final speed = speedText != null ? ' • $speedText' : '';
       await FlutterForegroundTask.updateService(
         notificationTitle: 'Downloading $modelName — $pct%',
-        notificationText: 'Continues when the screen is locked$speed',
+        notificationText: 'Download in progress$speed',
       );
     } catch (_) {}
   }
 
-  /// Keep model loading alive when the screen locks.
-  Future<void> enableForModelLoad({String modelName = 'model'}) async {
-    await _startOrUpdateService(
-      title: 'Loading $modelName',
-      text: 'Model load continues when the screen is locked',
-      serviceId: 102,
-    );
-  }
-
-  /// Keep a loaded model alive when the screen locks.
+  /// Enable wake lock + foreground service for AI inference.
   Future<void> enableForInference({String modelName = 'AI model'}) async {
-    await _startOrUpdateService(
-      title: 'AI Model Active',
-      text: '$modelName is ready — runs when the screen is locked',
-      serviceId: 101,
-    );
-  }
+    if (!_isMobile) return;
 
-  /// Keep response generation alive when the screen locks.
-  Future<void> enableForGeneration({String modelName = 'AI model'}) async {
-    await _startOrUpdateService(
-      title: 'Generating response',
-      text: '$modelName is thinking — safe to lock the screen',
-      serviceId: 103,
-    );
-  }
+    try {
+      await WakelockPlus.enable();
+      isWakeLockActive.value = true;
 
-  /// Return to idle inference notification after generation completes.
-  Future<void> finishGeneration({String modelName = 'AI model'}) async {
-    await enableForInference(modelName: modelName);
+      await FlutterForegroundTask.startService(
+        notificationTitle: 'AI Model Active',
+        notificationText: '$modelName is loaded and ready',
+        serviceId: 101,
+      );
+    } catch (e) {
+      debugPrint('WakelockService.enableForInference error: $e');
+    }
   }
 
   /// Disable wake lock and stop foreground service.
   Future<void> disable() async {
     if (!_isMobile) return;
 
-    await _maybeDisableScreenWakeLock();
+    try {
+      await WakelockPlus.disable();
+      isWakeLockActive.value = false;
+    } catch (_) {}
 
     try {
       await FlutterForegroundTask.stopService();
-      isForegroundServiceActive.value = false;
     } catch (_) {}
   }
 
